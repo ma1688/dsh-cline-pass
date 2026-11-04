@@ -12,6 +12,7 @@ Use [Cline Pass](https://cline.bot/cline-pass) subscription models directly in [
 - Streaming, tool calls, image input, and reasoning, depending on the model.
 - Multiple accounts with single-account and round-robin modes.
 - Discover, validate, pin, or exclude upstream channels, with failover before the first token.
+- Region constraints (`inferenceRegion`) so a subscription model can leave its server-side virtual model config and actually honor the pinned channel.
 - Web settings panel and optional `cline_pass_*` management tools.
 
 ## Quick start
@@ -61,6 +62,39 @@ Expand a model row in the settings panel, click **Probe → Validate**, save you
 - `preferred`: Send a preferred channel order to the gateway and try subsequent candidates when needed.
 
 Validation sends real requests to each channel without changing saved rules. Failover for retryable errors takes place before the first output token.
+
+### Region constraint (`inferenceRegion`)
+
+Every `cline-pass/*` model is bound to a server-side virtual model config (VMC). That
+path **drops** `providerOptions.gateway.only`, so pinning alone frequently has no
+effect: the request still lands on the VMC's own private channel, and the client sees
+no error at all.
+
+`inferenceRegion` is the one field that evicts the VMC's provider from the plan: pin
+that provider to a zone it does not serve, and the plan falls back to the model's
+plain upstream registry, where `only` does bite.
+
+```yaml
+      cline-pass/deepseek-v4.1-flash-1017:
+        upstreams: [deepseek]
+        pinMode: strict
+        inferenceRegion:
+          scope: global
+          providers:
+            openai-compatible-private:
+              scope: zone
+              geoRegion: us
+```
+
+The management tool takes the same value as JSON text:
+
+```
+cline_pass_pin(model="cline-pass/xxx", upstreams=["deepseek"], inferenceRegion='{"scope":"global","providers":{"openai-compatible-private":{"scope":"zone","geoRegion":"us"}}}')
+```
+
+- Left unset, nothing changes and no extra field is sent.
+- A malformed value (bad JSON, an array) is treated as "not configured" instead of failing the request.
+- Confirm it took effect from the routing metadata: `finalProvider` should name your channel, and `provider_metadata.gateway.virtualModelConfig` should be empty.
 
 ## Development and contributing
 

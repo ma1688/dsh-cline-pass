@@ -1097,7 +1097,7 @@ try {
   }
 
   const pinned = await call('cline_pass_pin', { model: 'cline-pass/glm-5.2', upstreams: ['baseten', 'alibaba'], pinMode: 'preferred', sort: 'cost' })
-  check('pin persists into the settings section', same(section.perModel['cline-pass/glm-5.2'], { upstreams: ['baseten', 'alibaba'], exclude: [], pinMode: 'preferred', sort: 'cost' }), JSON.stringify(section.perModel))
+  check('pin persists into the settings section', same(section.perModel['cline-pass/glm-5.2'], { upstreams: ['baseten', 'alibaba'], exclude: [], pinMode: 'preferred', sort: 'cost', inferenceRegion: '' }), JSON.stringify(section.perModel))
   check('pin reports what it stored', pinned.pinned.join() === 'baseten,alibaba' && pinned.sort === 'cost', JSON.stringify(pinned))
   const repinned = await call('cline_pass_pin', { model: 'cline-pass/glm-5.2', exclude: ['baseten'] })
   check('pin keeps fields it was not given', repinned.pinned.join() === 'baseten,alibaba' && repinned.excluded.join() === 'baseten', JSON.stringify(repinned))
@@ -1641,7 +1641,7 @@ try {
   await panel['account.mode']({ mode: 'single' })
 
   const panelPinned = await panel['model.pin']({ model: 'cline-pass/glm-5.2', upstreams: ['alibaba', 'baseten'], pinMode: 'preferred', sort: 'ttft' })
-  check('model.pin persists the pin', same(section.perModel['cline-pass/glm-5.2'], { upstreams: ['alibaba', 'baseten'], exclude: [], pinMode: 'preferred', sort: 'ttft', has: [] }), JSON.stringify(section.perModel))
+  check('model.pin persists the pin', same(section.perModel['cline-pass/glm-5.2'], { upstreams: ['alibaba', 'baseten'], exclude: [], pinMode: 'preferred', sort: 'ttft', has: [], inferenceRegion: '' }), JSON.stringify(section.perModel))
 
   const panelRepinned = await panel['model.pin']({ model: 'cline-pass/glm-5.2', exclude: ['baseten'] })
   check('model.pin keeps the fields it was not given', same(panelRepinned.pin.upstreams, ['alibaba', 'baseten']) && same(panelRepinned.pin.exclude, ['baseten']), JSON.stringify(panelRepinned.pin))
@@ -1652,6 +1652,19 @@ try {
   check('model.pin normalizes the capability filter',
     same(panelCapped.pin.has, ['vision', '!quantization:bf16']) && same(section.perModel['cline-pass/glm-5.2'].has, ['vision', '!quantization:bf16']),
     JSON.stringify(panelCapped.pin.has))
+
+  // The region constraint is what lifts a subscription model out of its virtual
+  // model config, and the panel has no editor for it: a later save that does not
+  // mention it must not drop it, or the pin silently reverts to the VMC channel.
+  const regionPin = { scope: 'global', providers: { 'openai-compatible-private': { scope: 'zone', geoRegion: 'us' } } }
+  const panelRegion = await panel['model.pin']({ model: 'cline-pass/glm-5.2', inferenceRegion: JSON.stringify(regionPin) })
+  check('model.pin persists the region constraint',
+    same(panelRegion.pin.inferenceRegion, JSON.stringify(regionPin)),
+    JSON.stringify(panelRegion.pin.inferenceRegion))
+  const panelRegionKept = await panel['model.pin']({ model: 'cline-pass/glm-5.2', sort: 'cost' })
+  check('model.pin keeps a region constraint it was not given',
+    same(panelRegionKept.pin.inferenceRegion, JSON.stringify(regionPin)),
+    JSON.stringify(panelRegionKept.pin.inferenceRegion))
   const panelKeptHas = await panel['model.pin']({ model: 'cline-pass/glm-5.2', pinMode: 'preferred' })
   check('model.pin keeps the capability filter it was not given', same(panelKeptHas.pin.has, ['vision', '!quantization:bf16']), JSON.stringify(panelKeptHas.pin))
 

@@ -19,6 +19,7 @@ import {
   isAdherenceOk,
   MAX_UPSTREAMS,
   mergeUpstreams,
+  normalizeInferenceRegion,
   normalizePinMode,
   pinAdherence,
   pinWarnings,
@@ -47,6 +48,30 @@ check('a planner model ALSO gets the top-level spelling', same(plannerBody.provi
 const directBody = injectPrefs({ model: 'm' }, { pipeline: 'direct', upstreams: ['gmicloud'] }, { upstream: 'gmicloud', strict: true, sort: null })
 check('a direct model still gets provider.only', same(directBody.provider?.only, ['gmicloud']), JSON.stringify(directBody))
 check('a direct model ALSO gets the gateway spelling', same(directBody.providerOptions?.gateway?.only, ['gmicloud']), JSON.stringify(directBody))
+
+// ── the region constraint ────────────────────────────────────────────────────
+// `only` is dropped on a subscription model's virtual model config; the region
+// constraint is what evicts the VMC's own provider so the request reaches the
+// plain registry, where `only` bites. Both storage shapes must reach the wire.
+
+const region = { scope: 'global', providers: { 'openai-compatible-private': { scope: 'zone', geoRegion: 'us' } } }
+const regionAttempt = buildAttempts({ upstreams: ['deepseek'], exclude: [], pinMode: 'strict', has: [], inferenceRegion: region })[0]
+check('buildAttempts carries the region constraint onto the attempt', same(regionAttempt.inferenceRegion, region), JSON.stringify(regionAttempt))
+
+const regionBody = injectPrefs({ model: 'm' }, { pipeline: 'planner', upstreams: ['deepseek'] }, regionAttempt)
+check('the region constraint reaches providerOptions.gateway', same(regionBody.providerOptions?.gateway?.inferenceRegion, region), JSON.stringify(regionBody))
+check('the region constraint rides beside gateway.only', same(regionBody.providerOptions?.gateway?.only, ['deepseek']), JSON.stringify(regionBody))
+
+const jsonTextAttempt = buildAttempts({ upstreams: ['deepseek'], inferenceRegion: JSON.stringify(region) })[0]
+check('a JSON-text region is parsed into the object', same(jsonTextAttempt.inferenceRegion, region), JSON.stringify(jsonTextAttempt))
+
+const noRegion = injectPrefs({ model: 'm' }, { pipeline: 'planner', upstreams: ['a'] }, { upstream: 'a', strict: true, sort: null })
+check('no region means no gateway.inferenceRegion', noRegion.providerOptions?.gateway?.inferenceRegion === undefined, JSON.stringify(noRegion))
+
+const brokenRegion = injectPrefs({ model: 'm' }, { pipeline: 'planner', upstreams: ['a'] }, { upstream: 'a', strict: true, inferenceRegion: '{not json' })
+check('an unparsable region is dropped instead of failing the request', brokenRegion.providerOptions?.gateway?.inferenceRegion === undefined, JSON.stringify(brokenRegion))
+check('normalizeInferenceRegion accepts both shapes', same(normalizeInferenceRegion(region), region) && same(normalizeInferenceRegion(JSON.stringify(region)), region))
+check('normalizeInferenceRegion rejects junk', normalizeInferenceRegion('') === null && normalizeInferenceRegion('[]') === null && normalizeInferenceRegion(7) === null)
 
 const detectedPlanner = injectPrefs({ model: 'm' }, { pipeline: 'planner', upstreams: ['a'] }, { upstream: 'a', strict: true, spelling: 'detected' })
 check("spelling 'detected' restores the single-spelling behavior", detectedPlanner.provider === undefined && same(detectedPlanner.providerOptions.gateway.only, ['a']), JSON.stringify(detectedPlanner))

@@ -12,6 +12,7 @@
 - 支持流式输出、工具调用、图片输入和推理，具体能力取决于模型。
 - 多账号管理，支持单账号与轮询模式。
 - 探测、校验、指定或排除上游渠道，支持首个 token 前的故障转移。
+- 支持区域约束（`inferenceRegion`），让订阅模型绕开服务端的虚拟模型配置、真正按指定渠道路由。
 - 提供 Web 设置面板和可选的 `cline_pass_*` 管理工具。
 
 ## 快速开始
@@ -61,6 +62,37 @@ dsh --profile web
 - `preferred`：向网关传递渠道偏好顺序，必要时尝试后续候选渠道。
 
 校验会向每个渠道发送真实请求，不会修改已保存的规则；可重试的故障转移发生在首个 token 输出前。
+
+### 区域约束（`inferenceRegion`）
+
+`cline-pass/*` 模型在服务端绑定了一个虚拟模型配置（VMC）。这条路径会**丢弃**请求里的
+`providerOptions.gateway.only`，所以只靠「指定渠道」往往不生效——请求仍然落在 VMC 自带的
+私有渠道上，而客户端看不到任何报错。
+
+`inferenceRegion` 是唯一能把 VMC 自己那个 provider 挤出计划的字段：把 provider 钉到一个它
+不在的区域，计划回落到该模型的普通上游注册表，`only` 才在这一层生效。
+
+```yaml
+      cline-pass/deepseek-v4.1-flash-1017:
+        upstreams: [deepseek]
+        pinMode: strict
+        inferenceRegion:
+          scope: global
+          providers:
+            openai-compatible-private:
+              scope: zone
+              geoRegion: us
+```
+
+也可以用管理工具写入（参数是 JSON 文本）：
+
+```
+cline_pass_pin(model="cline-pass/xxx", upstreams=["deepseek"], inferenceRegion='{"scope":"global","providers":{"openai-compatible-private":{"scope":"zone","geoRegion":"us"}}}')
+```
+
+- 不配置时行为与之前完全一致，不会额外发送任何字段。
+- 段落写错（非法 JSON、数组）会被当作「未配置」丢弃，不会让请求失败。
+- 生效与否看响应里的路由元数据：`finalProvider` 是否为你指定的渠道、`provider_metadata.gateway.virtualModelConfig` 是否为空。
 
 ## 开发与贡献
 
