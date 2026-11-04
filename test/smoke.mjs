@@ -1061,8 +1061,12 @@ try {
   // and all three left it out, which made them measure a different request from the
   // one the panel showed.
   {
+    // The region constraint rides along for the same reason: it is what lifts a
+    // subscription model out of its virtual model config, so a diagnostic that
+    // omits it measures the VMC channel and calls a working pin "not adopted".
+    const region = { scope: 'global', providers: { 'openai-compatible-private': { scope: 'zone', geoRegion: 'us' } } }
     const savedPerModel = section.perModel
-    section = { ...section, perModel: { ...(savedPerModel ?? {}), 'cline-pass/glm-5.2': { upstreams: ['deepseek'], exclude: [], pinMode: 'strict', sort: '', has: ['vision', 'implicit-caching'] } } }
+    section = { ...section, perModel: { ...(savedPerModel ?? {}), 'cline-pass/glm-5.2': { upstreams: ['deepseek'], exclude: [], pinMode: 'strict', sort: '', has: ['vision', 'implicit-caching'], inferenceRegion: region } } }
     try {
       stub.requests.length = 0
       await call('cline_pass_test', { model: 'cline-pass/glm-5.2' })
@@ -1070,6 +1074,9 @@ try {
       check('a pin test carries the filter and the pinned channel',
         same(pinTest.providerOptions?.gateway?.has, ['vision', 'implicit-caching'])
           && same(pinTest.providerOptions?.gateway?.only, ['deepseek']),
+        JSON.stringify(pinTest.providerOptions))
+      check('a pin test carries the region constraint',
+        same(pinTest.providerOptions?.gateway?.inferenceRegion, region),
         JSON.stringify(pinTest.providerOptions))
 
       stub.requests.length = 0
@@ -1083,6 +1090,9 @@ try {
       check('the probe channel query carries the same filter',
         same(harvestBody.providerOptions?.gateway?.has, ['vision', 'implicit-caching']),
         JSON.stringify(harvestBody.providerOptions))
+      check('a probe carries the region constraint into the channel query',
+        same(harvestBody.providerOptions?.gateway?.inferenceRegion, region),
+        JSON.stringify(harvestBody.providerOptions))
 
       stub.requests.length = 0
       await call('cline_pass_validate', { model: 'cline-pass/glm-5.2' })
@@ -1090,6 +1100,10 @@ try {
       check('per-channel validation carries the filter',
         channelBodies.length > 0
           && channelBodies.every((body) => same(body.providerOptions?.gateway?.has, ['vision', 'implicit-caching'])),
+        JSON.stringify(channelBodies.map((body) => body.providerOptions?.gateway)))
+      check('per-channel validation carries the region constraint',
+        channelBodies.length > 0
+          && channelBodies.every((body) => same(body.providerOptions?.gateway?.inferenceRegion, region)),
         JSON.stringify(channelBodies.map((body) => body.providerOptions?.gateway)))
     } finally {
       section = { ...section, perModel: savedPerModel }
